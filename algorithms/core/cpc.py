@@ -354,12 +354,25 @@ def heuristic_search(df, cc_set_selection_method = 'chi-sq', num_folds=10, cond_
     return Z
 
 
+def _parallel_ci_test_chunk(chunk_pairs, I_mapped, tester_method, alpha):
+    res_list = []
+    for x, y in chunk_pairs:
+        for sepset in I_mapped:
+            if x in sepset or y in sepset:
+                continue
+            p = tester_method(x, y, sepset)
+            if p > alpha:
+                res_list.append((x, y, tuple(sepset)))
+                break
+    return res_list
+
+
 def CPC(df,tester,I,variables_cannot_be_tested=[], data_names =[],alpha=0.05, 
         path_sep_set_enforced=False,
         traverse_subset_and_skip = False,
         k=1,
         background_knowledge: BackgroundKnowledge | None = None,
-        verbose=False, **kwargs):
+        verbose=False, n_jobs=-1, **kwargs):
     data = df.to_numpy()
     n = data.shape[1]
     def is_any_element_in(list1, list2):
@@ -404,6 +417,15 @@ def CPC(df,tester,I,variables_cannot_be_tested=[], data_names =[],alpha=0.05,
         node_to_id_map[node] = i 
 
 
+    # Pre-map conditioning sets in I from strings to integer indices once to optimize performance
+    I_mapped = []
+    for sepset in I:
+        if data_names:
+            mapped_set = set([strname_id_map[s] if isinstance(s, str) else s for s in sepset])
+            I_mapped.append(mapped_set)
+        else:
+            I_mapped.append(set(sepset))
+
     # create an empty adjacency sets
     sep_sets: Dict[Tuple[int, int], Set[int]] = {}
 
@@ -413,44 +435,59 @@ def CPC(df,tester,I,variables_cannot_be_tested=[], data_names =[],alpha=0.05,
     cg.set_ind_test(independence_test_method)
     # perform marginal CI tests in a fast adjacency search manner
     var_range = range(no_of_var)
-    for x in var_range:
-        Neigh_x = cg.neighbors(x)
-        for y in Neigh_x:
-            # looping through subsets
-            if path_sep_set_enforced:
-                node_a = cg.G.nodes[x]
-                node_b = cg.G.nodes[y]
-                
-                # check if every element is in the possibleDsep list
-                possibleDsep = getPossibleDsep(node_a, node_b, cg.G, -1)
-                id_of_possibleDsep = [node_to_id_map[dsepnode] for dsepnode in possibleDsep]
-                # get the nodes along any path between x and y 
-                path_nodes_id = find_all_path_nodes(cg.G.graph, x, y)
-                # get possibleDesep and all nodes along the paths
-                possbleDsepIntersectwithPath_nodes_id = path_nodes_id.intersection(id_of_possibleDsep)
-                # we need at least one member of S to be in this set
-                for sepset in I:
-                    if data_names:
-                        sepset = set([strname_id_map[s] for s in sepset])
-                    if x in sepset or y in sepset:
-                        continue
-                    isAtLeastOneElementinPossDsep = is_any_element_in(sepset, possbleDsepIntersectwithPath_nodes_id)
-                    if isAtLeastOneElementinPossDsep:
-                        p = cg.ci_test(x, y, sepset)
-                        if p > alpha:
-                            remove_if_exists(cg, x, y)
-                            remove_if_exists(cg, y, x)
-                            append_value(cg.sepset, x, y, tuple(sepset))
-                            append_value(cg.sepset, y, x, tuple(sepset))
-                            sep_sets[(x, y)] = sepset
-                            sep_sets[(y, x)] = sepset
-                            break
-            else:
-                if traverse_subset_and_skip:
-                    found = False
-                    new_s = [s for s in var_range if x != s and y!= s and s not in idx_to_skip]
-                    for r in range(k):
-                        for sepset in combinations(new_s, r):                     
+    if n_jobs != 1 and not traverse_subset_and_skip and not path_sep_set_enforced:
+        from joblib import Parallel, delayed
+        # Collect all unique pairs (x < y) to test in parallel
+        pairs = []
+        for x in var_range:
+            for y in var_range:
+                if x < y:
+                    pairs.append((x, y))
+        
+        # Calculate optimal chunks to minimize serialization overhead
+        n_cores = Parallel(n_jobs=n_jobs)._effective_n_jobs()
+        chunk_size = max(1, len(pairs) // (n_cores * 4))
+        chunks = [pairs[i:i + chunk_size] for i in range(0, len(pairs), chunk_size)]
+        
+        # Execute chunks in parallel across all cores
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_parallel_ci_test_chunk)(chunk, I_mapped, independence_test_method, alpha)
+            for chunk in chunks
+        )
+        
+        # Apply the results to the graph structure
+        for chunk_res in results:
+            for res in chunk_res:
+                x, y, sepset = res
+                remove_if_exists(cg, x, y)
+                remove_if_exists(cg, y, x)
+                append_value(cg.sepset, x, y, sepset)
+                append_value(cg.sepset, y, x, sepset)
+                sep_sets[(x, y)] = set(sepset)
+                sep_sets[(y, x)] = set(sepset)
+    else:
+        # Sequential search fallback
+        for x in var_range:
+            Neigh_x = cg.neighbors(x)
+            for y in Neigh_x:
+                # looping through subsets
+                if path_sep_set_enforced:
+                    node_a = cg.G.nodes[x]
+                    node_b = cg.G.nodes[y]
+                    
+                    # check if every element is in the possibleDsep list
+                    possibleDsep = getPossibleDsep(node_a, node_b, cg.G, -1)
+                    id_of_possibleDsep = [node_to_id_map[dsepnode] for dsepnode in possibleDsep]
+                    # get the nodes along any path between x and y 
+                    path_nodes_id = find_all_path_nodes(cg.G.graph, x, y)
+                    # get possibleDesep and all nodes along the paths
+                    possbleDsepIntersectwithPath_nodes_id = path_nodes_id.intersection(id_of_possibleDsep)
+                    # we need at least one member of S to be in this set
+                    for sepset in I_mapped:
+                        if x in sepset or y in sepset:
+                            continue
+                        isAtLeastOneElementinPossDsep = is_any_element_in(sepset, possbleDsepIntersectwithPath_nodes_id)
+                        if isAtLeastOneElementinPossDsep:
                             p = cg.ci_test(x, y, sepset)
                             if p > alpha:
                                 remove_if_exists(cg, x, y)
@@ -459,25 +496,38 @@ def CPC(df,tester,I,variables_cannot_be_tested=[], data_names =[],alpha=0.05,
                                 append_value(cg.sepset, y, x, tuple(sepset))
                                 sep_sets[(x, y)] = sepset
                                 sep_sets[(y, x)] = sepset
-                                found = True
                                 break
-                        if found:
-                            break
                 else:
-                    for sepset in I:
-                        if data_names:
-                            sepset = set([strname_id_map[s] for s in sepset])
-                        if x in sepset or y in sepset:
-                            continue
-                        p = cg.ci_test(x, y, sepset)
-                        if p > alpha:
-                            remove_if_exists(cg, x, y)
-                            remove_if_exists(cg, y, x)
-                            append_value(cg.sepset, x, y, tuple(sepset))
-                            append_value(cg.sepset, y, x, tuple(sepset))
-                            sep_sets[(x, y)] = sepset
-                            sep_sets[(y, x)] = sepset
-                            break
+                    if traverse_subset_and_skip:
+                        found = False
+                        new_s = [s for s in var_range if x != s and y!= s and s not in idx_to_skip]
+                        for r in range(k):
+                            for sepset in combinations(new_s, r):                     
+                                p = cg.ci_test(x, y, sepset)
+                                if p > alpha:
+                                    remove_if_exists(cg, x, y)
+                                    remove_if_exists(cg, y, x)
+                                    append_value(cg.sepset, x, y, tuple(sepset))
+                                    append_value(cg.sepset, y, x, tuple(sepset))
+                                    sep_sets[(x, y)] = sepset
+                                    sep_sets[(y, x)] = sepset
+                                    found = True
+                                    break
+                            if found:
+                                break
+                    else:
+                        for sepset in I_mapped:
+                            if x in sepset or y in sepset:
+                                continue
+                            p = cg.ci_test(x, y, sepset)
+                            if p > alpha:
+                                remove_if_exists(cg, x, y)
+                                remove_if_exists(cg, y, x)
+                                append_value(cg.sepset, x, y, tuple(sepset))
+                                append_value(cg.sepset, y, x, tuple(sepset))
+                                sep_sets[(x, y)] = sepset
+                                sep_sets[(y, x)] = sepset
+                                break
 
 
     ########### apply FCI and kPC orientations #################
