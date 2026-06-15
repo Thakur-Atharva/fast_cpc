@@ -29,6 +29,7 @@ from runners.base import (
     print_results,
     save_visualization,
     save_run_results,
+    sort_edges,
 )
 
 
@@ -223,7 +224,7 @@ def main():
         if "directed" not in edge_type and "possibly_causal" not in edge_type:
             final_edges.append((src, tgt, meta))
 
-    result.edges = final_edges
+    result.edges = sort_edges(final_edges)
 
     # --- Print results ---
     print_results(result)

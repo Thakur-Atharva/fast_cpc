@@ -14,6 +14,16 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 
+def sort_edges(edges: List[Tuple[str, str, dict]]) -> List[Tuple[str, str, dict]]:
+    """Sort edges from smallest source node seq num to largest. Ties settled by destination seq num."""
+    import re
+    def _get_seq_num(node_name: str) -> int:
+        match = re.match(r'^\d+', node_name)
+        return int(match.group()) if match else 0
+        
+    return sorted(edges, key=lambda e: (_get_seq_num(e[0]), _get_seq_num(e[1])))
+
+
 @dataclass
 class DiscoveryResult:
     """Standardized output from any causal discovery runner."""
@@ -23,6 +33,9 @@ class DiscoveryResult:
     adj_matrix: Optional[np.ndarray] = None
     graph_score: Optional[float] = None  # GES total score
     params_summary: str = ""  # Key params for title/filename
+
+    def __post_init__(self):
+        self.edges = sort_edges(self.edges)
 
 
 # ---------------------------------------------------------------------------
