@@ -1,85 +1,128 @@
-# CPC Algorithm
+# Fast CPC & Causal Discovery CLI
 
-This repository contains the implementation of various causal discovery algorithms, including CPC (our algorithm), FCI (Fast Causal Inference), and kPC (PC with up to separating set of size k).
+A high-performance, command-line-driven causal discovery suite tailored for high-dimensional manufacturing routing datasets. This repository provides a unified interface to run multiple causal discovery algorithms—**C-PC, k-PC, FCI, and GES**—while enforcing temporal physical constraints and performing network complexity reduction.
 
-## Overview
+This project is a fork of the original [kenneth-lee-ch/cpc](https://github.com/kenneth-lee-ch/cpc) repository (by Kenneth Lee, Bruno Ribeiro, and Murat Kocaoglu). We have optimized the core execution pathways, introduced multi-core CPU parallelization, and built a standardized CLI pipeline.
 
-This package implements several causal discovery algorithms:
-- CPC (PC-like constraint-based discovery using a conditionally-closed set)
-- FCI (Fast Causal Inference)
-- kPC (PC-like constraint-based discovery with up to separating set of size k)
+---
+
+## Key Features
+
+- **Unified CLI (`discover.py`)**: Run and compare CPC, k-PC, FCI, and GES using standard command-line flags.
+- **CPU Parallelization**: The C-PC algorithm uses a chunked task-parallel strategy via `joblib` and integer index pre-mapping to speed up conditional independence (CI) tests on high-core systems.
+- **Automated Hub Analysis**: Dynamically identifies routing sequence "hubs" based on presence rates and entropy to form conditionally closed sets.
+- **Chronological Temporal Filtering**: Discards causal edges that violate physical time order (i.e., downstream processes causing upstream processes).
+- **Transitive Complexity Reduction**: Simplifies discovered graphs by removing transitive bypass connections using NetworkX transitive reduction.
+- **Standardized Outputs**: Decodes PAG/CPDAG edge markings (directed `-->`, bidirected `<->`, possibly causal `o->`, undirected `---`, etc.) and formats them into a clean terminal table.
+- **Visual Graph Generation**: Generates high-quality chronological layout DAG plots for each run.
+
+---
 
 ## Installation
 
+Ensure you are in the project root directory. We recommend using `uv` or standard `virtualenv`:
+
 ```bash
+# Create and activate virtual environment
+uv venv cpc
+source cpc/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-## Usage
+---
 
-Basic usage example:
+## Quick Start Pipeline
 
-```python
-import numpy as np
-import pandas as pd
-import sys
-sys.path.append("../")
-from algorithms.core.cpc import CPC
-from algorithms.utils.graph_utils import visualize_graph_color
+### 1. Generate Fake/Synthetic Data
+To generate a synthetic manufacturing dataset (`fake_data.csv`) with 6,000 lots, 800 stages, and 5 known ground-truth dependency chains, run:
 
-# Initialize and run CPC algorithm
-n_rows = 100
-n_cols = 10
-
-# Generate random binary data (0 or 1)
-data = np.random.randint(0, 2, size=(n_rows, n_cols))
-
-# Create column names: X0, X1, ..., X9
-columns = [f'X{i}' for i in range(n_cols)]
-
-# Create DataFrame
-df_binary = pd.DataFrame(data, columns=columns)
-
-I = [{}, {'X0'}]
-tester = 'chisq'
-D, _ = CPC(df_binary.to_numpy(), tester, I, alpha=0.05, data_names=columns)
-cpc_adj = D.graph
-
-# Visualize the resulting graph
-visualize_graph_color(D, name= 'cpc_output_p{}'.format(alpha)) 
+```bash
+python data_generate.py
 ```
 
-## Project Structure
+### 2. Run C-PC (Conditional PC)
+C-PC is optimized for high-dimensional structures and uses automated hub analysis.
+- **Note**: The Bonferroni-corrected significance threshold (`--alpha 1e-10`) is recommended for the multiple-testing problem with 800 variables.
 
-```
-cpc/
-├── algorithms/           # Main package directory
-│   ├── core/            # Core algorithms
-│   ├── utils/           # Utility functions
-│   └── visualization/   # Graph visualization tools
-├── tests/               # Test suite
-├── docs/                # Documentation
+```bash
+python discover.py --cpc --data fake_data.csv --alpha 1e-10 --max-hubs 30 --n-jobs -1
 ```
 
-## Documentation
+### 3. Run k-PC (PC restricted to depth k)
+k-PC runs skeleton learning restricted to conditioning sets of size at most `k`.
+- **Note**: Using `--k 1` with `--fast-adj` is recommended for high dimensions to keep the CI search space tractable.
 
-Detailed documentation is available in the `docs/` directory.
+```bash
+python discover.py --kpc --data fake_data.csv --k 1 --alpha 1e-10
+```
 
-## Contributing
+### 4. Run FCI (Fast Causal Inference)
+FCI allows for latent (unobserved) confounders and outputs a Partial Ancestral Graph (PAG).
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+```bash
+python discover.py --fci --data fake_data.csv --depth 1 --alpha 1e-10
+```
 
+### 5. Run GES (Greedy Equivalence Search)
+GES is a score-based algorithm that optimizes a likelihood score.
+- **Note**: For discrete/binary manufacturing routing data, the Bayesian Dirichlet equivalent uniform (`local_score_BDeu`) score is used.
+- *Caution*: Scoring 800 columns sequentially can be computationally expensive; you may want to limit the search space or run it on a subset of variables.
 
-## Citation
+```bash
+python discover.py --ges --data fake_data.csv --score-func local_score_BDeu
+```
 
-If you use this code in your research, please cite:
+---
 
-Lee, K., Ribeiro, B., & Kocaoglu, M. Constraint-based Causal Discovery from a Collection of Conditioning Sets.  UAI 2025.
+## CLI Argument Reference
 
-## Contact
+| Flag | Type | Description | Default |
+| :--- | :--- | :--- | :--- |
+| **Algorithm Selectors** | | *(Select exactly one)* | |
+| `--cpc` | Flag | Run C-PC structural learning loops | Required |
+| `--kpc` | Flag | Run k-PC structural learning | Required |
+| `--fci` | Flag | Run FCI algorithm | Required |
+| `--ges` | Flag | Run Greedy Equivalence Search | Required |
+| **Shared Parameters** | | | |
+| `--data` | Path | Path to CSV data file | `fake_data.csv` |
+| `--alpha` | Float | CI test significance level (p-value threshold) | `1e-10` (CPC), `0.05` (Others) |
+| `--tester` | Str | Independence test type (`chisq`, `fisherz`, `gsq`) | `chisq` |
+| `--no-temporal` | Flag | Disable chronological filtering | `False` |
+| `--no-transitive-reduction` | Flag | Disable transitive reduction post-processing | `False` |
+| `--output` | Path | Filename to save visualization PNG | `<algo>_manufacturing_dag.png` |
+| **Algorithm Specifics** | | | |
+| `--max-hubs` | Int | [CPC] Max number of conditioning hubs to use | `30` |
+| `--k` | Int | [k-PC] Max size of separating sets | `1` |
+| `--fast-adj` | Flag | [k-PC] Enable fast adjacency search | `True` |
+| `--depth` | Int | [FCI] Max conditioning set depth (-1 for unlimited) | `1` |
+| `--score-func` | Str | [GES] Scoring function (`local_score_BDeu`, `local_score_BIC`) | `local_score_BDeu` |
 
-Please feel free to open an issue if you have any questions.
+---
+
+## Parallel Performance & Optimization
+
+C-PC features heavy computational optimization for high-density, multi-core systems:
+1. **Pre-Mapped Memory**: String-based conditioning sets and columns are mapped once to integer arrays, avoiding millions of redundant lookup/allocation operations.
+2. **Chunked Task Allocation**: Groups CI statement pairs into chunks and evaluates them concurrently in parallel blocks (`n_jobs`), dropping schedule/IPC overhead on multi-core environments.
+
+### Example Performance (800 variables, 30 hubs):
+- **Sequential baseline**: `41.2 seconds`
+- **CPU Parallelized (48 cores)**: `7.2 seconds` *(~5.7x Speedup)*
+
+---
+
+## Citation & Credits
+
+This code contains wrappers and modified versions of the algorithms from **causal-learn**. 
+
+If you use CPC in your research, please cite:
+```bibtex
+@inproceedings{lee2025cpc,
+  title={Constraint-based Causal Discovery from a Collection of Conditioning Sets},
+  author={Lee, Kenneth and Ribeiro, Bruno and Kocaoglu, Murat},
+  booktitle={Proceedings of the 41st Conference on Uncertainty in Artificial Intelligence (UAI)},
+  year={2025}
+}
+```

@@ -20,8 +20,9 @@ from causallearn.search.ConstraintBased.FCI import reorientAllWith, removeByPoss
 from causallearn.utils.cit import chisq, fisherz, kci
 from algorithms.core.orientation import rule8, rule9, rule10
 from algorithms.utils.cit import *
-from algorithms.core.skeleton import learnSkeletonViafastAdjSearch_k, learnSkeletonAtK, learnSkeletonUpToK
+from algorithms.core.skeleton import learnSkeletonViafastAdjSearch_k, learnSkeletonUpToK
 from algorithms.core.orientation import FCI_orientations, rule0, kPC_orientations, make_kess_graph
+from algorithms.core.fas import fas_k
 
 class SepsetsPossibleDsep:
     def __init__(self, data: ndarray, graph: Graph, independence_test, alpha: float,
