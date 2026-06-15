@@ -15,6 +15,7 @@ This project is a fork of the original [kenneth-lee-ch/cpc](https://github.com/k
 - **Transitive Complexity Reduction**: Simplifies discovered graphs by removing transitive bypass connections using NetworkX transitive reduction.
 - **Standardized Outputs**: Decodes PAG/CPDAG edge markings (directed `-->`, bidirected `<->`, possibly causal `o->`, undirected `---`, etc.) and formats them into a clean terminal table.
 - **Visual Graph Generation**: Generates high-quality chronological layout DAG plots for each run.
+- **Automatic Run Logging**: Saves run results under a dedicated `runs/run_<timestamp>_<algorithm>/` folder containing `metadata.json` (dataset, parameters, runtime metrics), `edges.csv` (clean tabular edges), and `visualization.png` (the causal graph plot).
 
 ---
 

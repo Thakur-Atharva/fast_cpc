@@ -28,6 +28,7 @@ from runners.base import (
     apply_transitive_reduction,
     print_results,
     save_visualization,
+    save_run_results,
 )
 
 
@@ -60,7 +61,9 @@ def parse_args():
     parser.add_argument("--output", type=str, default=None,
                         help="Output PNG filename (default: <algorithm>_manufacturing_dag.png)")
     parser.add_argument("--n-jobs", type=int, default=-1,
-                        help="Number of parallel jobs for CPC (-1 = all cores)")
+                        help="Number of parallel jobs for CPC, k-PC, and FCI (-1 = all cores)")
+    parser.add_argument("--no-save-run", action="store_true",
+                        help="Disable saving run results (metadata and edges) to /runs directory")
 
     # --- CPC-specific ---
     parser.add_argument("--max-hubs", type=int, default=30,
@@ -104,9 +107,16 @@ def main():
     print(f"Loaded: {df.shape[0]} units x {len(stage_cols)} process stages from '{args.data}'")
 
     # --- Dispatch to runner ---
+    params = {}
     if args.cpc:
         from runners.run_cpc import run_cpc
         alpha = args.alpha if args.alpha is not None else 1e-10
+        params = {
+            "alpha": alpha,
+            "tester": args.tester,
+            "max_hubs": args.max_hubs,
+            "n_jobs": args.n_jobs,
+        }
         result = run_cpc(
             df, stage_cols,
             alpha=alpha,
@@ -119,6 +129,13 @@ def main():
         from runners.run_kpc import run_kpc
         alpha = args.alpha if args.alpha is not None else 0.05
         fast_adj = args.fast_adj and not args.no_fast_adj
+        params = {
+            "alpha": alpha,
+            "tester": args.tester,
+            "k": args.k,
+            "fast_adj_search": fast_adj,
+            "n_jobs": args.n_jobs,
+        }
         result = run_kpc(
             df, stage_cols,
             alpha=alpha,
@@ -131,6 +148,12 @@ def main():
     elif args.fci:
         from runners.run_fci import run_fci
         alpha = args.alpha if args.alpha is not None else 0.05
+        params = {
+            "alpha": alpha,
+            "tester": args.tester,
+            "depth": args.depth,
+            "n_jobs": args.n_jobs,
+        }
         result = run_fci(
             df, stage_cols,
             alpha=alpha,
@@ -141,6 +164,11 @@ def main():
 
     elif args.ges:
         from runners.run_ges import run_ges
+        params = {
+            "score_func": args.score_func,
+            "maxP": args.maxP,
+            "lambda": args.lambda_value,
+        }
         result = run_ges(
             df, stage_cols,
             score_func=args.score_func,
@@ -200,8 +228,23 @@ def main():
     # --- Print results ---
     print_results(result)
 
+    # --- Save Run Folder ---
+    run_folder_path = None
+    if not args.no_save_run:
+        run_folder_path = save_run_results(result, args.data, params)
+        print(f"  Run results saved to: {os.path.abspath(run_folder_path)}")
+
     # --- Visualization ---
-    save_visualization(G, stage_cols, timeline_map, result, output_path=args.output)
+    if run_folder_path is not None:
+        run_vis_path = os.path.join(run_folder_path, "visualization.png")
+        save_visualization(G, stage_cols, timeline_map, result, output_path=run_vis_path)
+
+    # If output path is explicitly requested, save a copy there
+    if args.output is not None:
+        save_visualization(G, stage_cols, timeline_map, result, output_path=args.output)
+    elif run_folder_path is None:
+        # Fallback to local file if run saving is disabled and no output path specified
+        save_visualization(G, stage_cols, timeline_map, result, output_path=None)
 
 
 if __name__ == "__main__":

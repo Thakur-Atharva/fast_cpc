@@ -181,3 +181,64 @@ def save_visualization(
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Visualization saved to: {os.path.abspath(output_path)}")
+
+
+def save_run_results(
+    result: DiscoveryResult,
+    dataset_name: str,
+    params: dict,
+    runs_dir: str = "runs",
+) -> str:
+    """
+    Save the discovery results (edges CSV and metadata JSON)
+    to a subfolder under the runs directory.
+    """
+    import json
+    os.makedirs(runs_dir, exist_ok=True)
+    
+    # Generate timestamp and folder name
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    sanitized_algo = result.algorithm_name.lower().replace("-", "_")
+    run_folder_name = f"run_{timestamp}_{sanitized_algo}"
+    run_path = os.path.join(runs_dir, run_folder_name)
+    os.makedirs(run_path, exist_ok=True)
+    
+    # 1. Save metadata.json
+    metadata = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "dataset": os.path.basename(dataset_name),
+        "algorithm": result.algorithm_name,
+        "parameters": params,
+        "execution_time_seconds": round(result.elapsed_seconds, 4),
+        "total_edges": len(result.edges),
+    }
+    if result.graph_score is not None:
+        metadata["graph_score"] = result.graph_score
+        
+    metadata_path = os.path.join(run_path, "metadata.json")
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=4)
+        
+    # 2. Save edges.csv
+    edges_path = os.path.join(run_path, "edges.csv")
+    edges_data = []
+    for src, tgt, meta in result.edges:
+        edge_type = meta.get("edge_type", "directed")
+        info_val = ""
+        if "score" in meta and meta["score"] is not None:
+            info_val = str(meta["score"])
+        elif "p_value" in meta and meta["p_value"] is not None:
+            info_val = f"p={meta['p_value']:.2e}"
+        edges_data.append({
+            "source": src,
+            "target": tgt,
+            "edge_type": edge_type,
+            "info": info_val
+        })
+        
+    df_edges = pd.DataFrame(edges_data)
+    if df_edges.empty:
+        df_edges = pd.DataFrame(columns=["source", "target", "edge_type", "info"])
+    df_edges.to_csv(edges_path, index=False)
+    
+    return run_path
