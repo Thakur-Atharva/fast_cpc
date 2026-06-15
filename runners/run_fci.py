@@ -15,6 +15,7 @@ def run_fci(
     alpha=0.05,
     tester="chisq",
     depth=1,
+    n_jobs=-1,
     **kwargs,
 ) -> DiscoveryResult:
     """
@@ -53,6 +54,7 @@ def run_fci(
         independence_test_method=tester,
         alpha=alpha,
         depth=depth,
+        n_jobs=n_jobs,
     )
     elapsed = time.time() - start_time
     print(f"  FCI completed in {elapsed:.2f}s")

@@ -103,13 +103,18 @@ python discover.py --ges --data fake_data.csv --score-func local_score_BDeu
 
 ## Parallel Performance & Optimization
 
-C-PC features heavy computational optimization for high-density, multi-core systems:
+**CPC, k-PC, and FCI** all feature heavy computational optimization and parallel scaling for multi-core systems:
 1. **Pre-Mapped Memory**: String-based conditioning sets and columns are mapped once to integer arrays, avoiding millions of redundant lookup/allocation operations.
-2. **Chunked Task Allocation**: Groups CI statement pairs into chunks and evaluates them concurrently in parallel blocks (`n_jobs`), dropping schedule/IPC overhead on multi-core environments.
+2. **Chunked Task Allocation**: Groups CI statement pairs or edge tests into chunks and evaluates them concurrently in parallel blocks (`n_jobs`), minimizing schedule/IPC overhead.
+3. **Parallel Stable Skeleton Search**: Under stable skeleton discovery (default), CI tests at each depth are independent and are evaluated fully in parallel using multi-core worker processes.
 
-### Example Performance (800 variables, 30 hubs):
-- **Sequential baseline**: `41.2 seconds`
-- **CPU Parallelized (48 cores)**: `7.2 seconds` *(~5.7x Speedup)*
+### Example Performance (800 variables, 6000 rows):
+- **C-PC** (30 hubs):
+  - Sequential: `41.2 seconds`
+  - Parallel (48 cores): `7.2 seconds` *(~5.7x Speedup)*
+- **k-PC** (k=1):
+  - Sequential: `22.0 seconds`
+  - Parallel (48 cores): `7.2 seconds` *(~3.0x Speedup)*
 
 ---
 

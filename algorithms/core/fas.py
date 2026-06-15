@@ -248,7 +248,7 @@ def searchAtDepth_not_stable(data: ndarray, depth: int, nodes: List[Node], adjac
 
 def fas_k(data: ndarray, nodes: List[Node], independence_test_method: CIT | None=None, alpha: float = 0.05,
         knowledge: BackgroundKnowledge | None = None, depth: int = -1,
-        verbose: bool = False, stable: bool = True, show_progress: bool = True) -> Tuple[
+        verbose: bool = False, stable: bool = True, show_progress: bool = True, n_jobs: int = 1) -> Tuple[
     GeneralGraph, Dict[Tuple[int, int], Set[int]]]:
     """
     Implements the "fast adjacency search" used in several causal algorithm in this file. In the fast adjacency
@@ -276,6 +276,7 @@ def fas_k(data: ndarray, nodes: List[Node], independence_test_method: CIT | None
     verbose: True is verbose output should be printed or logged
     stable: run stabilized skeleton discovery if True (default = True)
     show_progress: whether to use tqdm to show progress bar
+    n_jobs: number of parallel CPU jobs to run (-1 for all cores)
     Returns
     -------
     graph: Causal graph skeleton, where graph.graph[i,j] = graph.graph[j,i] = -1 indicates i --- j.
@@ -301,23 +302,48 @@ def fas_k(data: ndarray, nodes: List[Node], independence_test_method: CIT | None
 
     # use tqdm to show progress bar
     pbar = tqdm(total=len(nodes)) if show_progress else None
-    if depth==0:
-        more = searchAtDepth0(data, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
-                                  knowledge, pbar=pbar)
-    else:
-        for d in range(depth + 1):
-            if d == 0:
-                more = searchAtDepth0(data, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
-                                      knowledge, pbar=pbar)
-            else:
-                if stable:
-                    more = searchAtDepth(data, d, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
-                                         knowledge, pbar=pbar)
+    
+    if n_jobs != 1:
+        # Parallel execution flow
+        if depth == 0:
+            more = searchAtDepth0_parallel(nodes, adjacencies, sep_sets, independence_test_method, alpha,
+                                          knowledge, pbar=pbar, n_jobs=n_jobs)
+        else:
+            for d in range(depth + 1):
+                if d == 0:
+                    more = searchAtDepth0_parallel(nodes, adjacencies, sep_sets, independence_test_method, alpha,
+                                                  knowledge, pbar=pbar, n_jobs=n_jobs)
                 else:
-                    more = searchAtDepth_not_stable(data, d, nodes, adjacencies, sep_sets, independence_test_method, alpha,
-                                                    verbose, knowledge, pbar=pbar)
-            if not more:
-                break
+                    if stable:
+                        more = searchAtDepth_parallel(depth=d, nodes=nodes, adjacencies=adjacencies, sep_sets=sep_sets,
+                                                     independence_test_method=independence_test_method, alpha=alpha,
+                                                     knowledge=knowledge, pbar=pbar, n_jobs=n_jobs)
+                    else:
+                        # Fallback to sequential for non-stable if requested
+                        more = searchAtDepth_not_stable(data, d, nodes, adjacencies, sep_sets, independence_test_method, alpha,
+                                                        verbose, knowledge, pbar=pbar)
+                if not more:
+                    break
+    else:
+        # Sequential execution flow (original behavior)
+        if depth==0:
+            more = searchAtDepth0(data, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
+                                      knowledge, pbar=pbar)
+        else:
+            for d in range(depth + 1):
+                if d == 0:
+                    more = searchAtDepth0(data, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
+                                          knowledge, pbar=pbar)
+                else:
+                    if stable:
+                        more = searchAtDepth(data, d, nodes, adjacencies, sep_sets, independence_test_method, alpha, verbose,
+                                             knowledge, pbar=pbar)
+                    else:
+                        more = searchAtDepth_not_stable(data, d, nodes, adjacencies, sep_sets, independence_test_method, alpha,
+                                                        verbose, knowledge, pbar=pbar)
+                if not more:
+                    break
+                    
     if show_progress:
         pbar.close()
 
@@ -331,3 +357,175 @@ def fas_k(data: ndarray, nodes: List[Node], independence_test_method: CIT | None
 
     print("Finishing Fast Adjacency Search.")
     return graph, sep_sets
+
+
+def searchAtDepth0_parallel(nodes: List[Node], adjacencies: Dict[Node, Set[Node]],
+                           sep_sets: Dict[Tuple[int, int], Set[int]],
+                           independence_test_method: CIT | None = None, alpha: float = 0.05,
+                           knowledge: BackgroundKnowledge | None = None, pbar=None, n_jobs=-1) -> bool:
+    from joblib import Parallel, delayed
+    pairs = []
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            no_edge_required = True if knowledge is None else \
+                ((not knowledge.is_required(nodes[i], nodes[j])) or knowledge.is_required(nodes[j], nodes[i]))
+            if no_edge_required and not forbiddenEdge(nodes[i], nodes[j], knowledge):
+                pairs.append((i, j))
+
+    # Initialize complete graph adjacencies
+    for i in range(len(nodes)):
+        for j in range(len(nodes)):
+            if i != j:
+                adjacencies[nodes[i]].add(nodes[j])
+
+    if pbar is not None:
+        pbar.reset(total=len(pairs))
+        pbar.set_description("Depth=0 (Parallel)")
+
+    n_cores = Parallel(n_jobs=n_jobs)._effective_n_jobs()
+    chunk_size = max(1, len(pairs) // (n_cores * 4))
+    chunks = [pairs[x:x + chunk_size] for x in range(0, len(pairs), chunk_size)]
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_parallel_test_edge_depth0_chunk)(chunk, independence_test_method, alpha)
+        for chunk in chunks
+    )
+
+    for chunk_res in results:
+        for i, j, is_indep in chunk_res:
+            if pbar is not None:
+                pbar.update(1)
+            if is_indep:
+                sep_sets[(i, j)] = set()
+                if adjacencies[nodes[i]].__contains__(nodes[j]):
+                    adjacencies[nodes[i]].remove(nodes[j])
+                if adjacencies[nodes[j]].__contains__(nodes[i]):
+                    adjacencies[nodes[j]].remove(nodes[i])
+
+    if pbar is not None:
+        pbar.refresh()
+
+    return freeDegree(nodes, adjacencies) > 0
+
+
+def _parallel_test_edge_depth0_chunk(chunk_pairs, tester_method, alpha):
+    res = []
+    empty = ()
+    for i, j in chunk_pairs:
+        p_val = tester_method(i, j, empty)
+        res.append((i, j, p_val > alpha))
+    return res
+
+
+def searchAtDepth_parallel(depth: int, nodes: List[Node], adjacencies: Dict[Node, Set[Node]],
+                          sep_sets: Dict[Tuple[int, int], Set[int]],
+                          independence_test_method: CIT | None = None,
+                          alpha: float = 0.05,
+                          knowledge: BackgroundKnowledge | None = None, pbar=None, n_jobs=-1) -> bool:
+    from joblib import Parallel, delayed
+    adjacencies_completed = deepcopy(adjacencies)
+
+    # Convert adjacencies_completed to list of lists of integers (indices)
+    adj_completed_indices = []
+    for node in nodes:
+        adj_completed_indices.append([nodes.index(neighbor) for neighbor in adjacencies_completed[node]])
+
+    # Find candidate edges to test
+    candidate_edges = []
+    for i in range(len(nodes)):
+        node_x = nodes[i]
+        adjx = list(adjacencies_completed[node_x])
+        for node_y in adjx:
+            j = nodes.index(node_y)
+            if i < j:
+                # Check if testing is allowed by knowledge
+                no_edge_required = True if knowledge is None else \
+                    (not knowledge.is_required(node_x, node_y) or knowledge.is_required(node_y, node_x))
+                if no_edge_required:
+                    # Check if either i or j has enough neighbors to form a conditioning set of size 'depth'
+                    # (excluding the other node)
+                    has_enough_i = len(adj_completed_indices[i]) - 1 >= depth
+                    has_enough_j = len(adj_completed_indices[j]) - 1 >= depth
+                    if has_enough_i or has_enough_j:
+                        candidate_edges.append((i, j))
+
+    if pbar is not None:
+        pbar.reset(total=len(candidate_edges))
+        pbar.set_description(f"Depth={depth} (Parallel)")
+
+    # Execute in chunks to minimize overhead
+    n_cores = Parallel(n_jobs=n_jobs)._effective_n_jobs()
+    chunk_size = max(1, len(candidate_edges) // (n_cores * 4))
+    chunks = [candidate_edges[x:x + chunk_size] for x in range(0, len(candidate_edges), chunk_size)]
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_parallel_test_edge_chunk)(chunk, adj_completed_indices, depth, independence_test_method, alpha)
+        for chunk in chunks
+    )
+
+    for chunk_res in results:
+        for i, j, cond_set, is_indep in chunk_res:
+            if pbar is not None:
+                pbar.update(1)
+            if is_indep:
+                node_x = nodes[i]
+                node_y = nodes[j]
+                if adjacencies[node_x].__contains__(node_y):
+                    adjacencies[node_x].remove(node_y)
+                if adjacencies[node_y].__contains__(node_x):
+                    adjacencies[node_y].remove(node_x)
+
+                if cond_set is not None:
+                    sep_sets[(i, j)] = set(cond_set)
+                    sep_sets[(j, i)] = set(cond_set)
+
+    if pbar is not None:
+        pbar.refresh()
+
+    return freeDegree(nodes, adjacencies) > depth
+
+
+def _parallel_test_edge_chunk(chunk_edges, adj_indices, depth, tester_method, alpha):
+    from causallearn.utils.ChoiceGenerator import ChoiceGenerator
+    res = []
+    for i, j in chunk_edges:
+        # Neighbors of i (excluding j)
+        adj_i = list(adj_indices[i])
+        if j in adj_i:
+            adj_i.remove(j)
+        
+        is_indep = False
+        cond_set = None
+        
+        if len(adj_i) >= depth:
+            cg = ChoiceGenerator(len(adj_i), depth)
+            choice = cg.next()
+            while choice is not None:
+                c_set = tuple([adj_i[x] for x in choice])
+                p_val = tester_method(i, j, c_set)
+                if p_val > alpha:
+                    is_indep = True
+                    cond_set = c_set
+                    break
+                choice = cg.next()
+                
+        if not is_indep:
+            # Neighbors of j (excluding i)
+            adj_j = list(adj_indices[j])
+            if i in adj_j:
+                adj_j.remove(i)
+            
+            if len(adj_j) >= depth:
+                cg = ChoiceGenerator(len(adj_j), depth)
+                choice = cg.next()
+                while choice is not None:
+                    c_set = tuple([adj_j[x] for x in choice])
+                    p_val = tester_method(i, j, c_set)
+                    if p_val > alpha:
+                        is_indep = True
+                        cond_set = c_set
+                        break
+                    choice = cg.next()
+                    
+        res.append((i, j, cond_set, is_indep))
+    return res

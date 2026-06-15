@@ -125,6 +125,7 @@ def main():
             tester=args.tester,
             k=args.k,
             fast_adj_search=fast_adj,
+            n_jobs=args.n_jobs,
         )
 
     elif args.fci:
@@ -135,6 +136,7 @@ def main():
             alpha=alpha,
             tester=args.tester,
             depth=args.depth,
+            n_jobs=args.n_jobs,
         )
 
     elif args.ges:

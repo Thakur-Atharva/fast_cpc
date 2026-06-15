@@ -45,7 +45,7 @@ def kPC(data,tester,k,n,alpha=0.05,
    
     if fastAdjSearch:
         # apply fast adjacency search but do not mark any essential edges
-        G, edges = fci_k(data, tester, alpha, depth=k, verbose=verbose)
+        G, edges = fci_k(data, tester, alpha, depth=k, verbose=verbose, **kwargs)
         adj=G.graph
         new_adj=kPC_orientations(G,n)
         while (new_adj!=adj).any():

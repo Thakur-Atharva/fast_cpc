@@ -16,6 +16,7 @@ def run_kpc(
     tester="chisq",
     k=1,
     fast_adj_search=True,
+    n_jobs=-1,
     **kwargs,
 ) -> DiscoveryResult:
     """
@@ -56,6 +57,7 @@ def run_kpc(
         alpha=alpha,
         fastAdjSearch=fast_adj_search,
         node_names=stage_cols,
+        n_jobs=n_jobs,
     )
     elapsed = time.time() - start_time
     print(f"  k-PC completed in {elapsed:.2f}s")

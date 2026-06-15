@@ -738,6 +738,7 @@ def get_color_edges(graph: Graph) -> List[Edge]:
 
 def fci_k(dataset: ndarray, independence_test_method: str=fisherz, alpha: float = 0.05, depth: int = -1,
         max_path_length: int = -1, verbose: bool = False, background_knowledge: BackgroundKnowledge | None = None,
+        n_jobs: int = 1,
         **kwargs) -> Tuple[Graph, List[Edge]]:
     # check sep sets of size at most k
 
@@ -797,7 +798,7 @@ def fci_k(dataset: ndarray, independence_test_method: str=fisherz, alpha: float 
 
     # FAS (“Fast Adjacency Search”) is the adjacency search of the PC algorithm, used as a first step for the FCI algorithm.
     graph, sep_sets = fas_k(dataset, nodes, independence_test_method=independence_test_method, alpha=alpha,
-                          knowledge=background_knowledge, depth=depth, verbose=verbose)
+                          knowledge=background_knowledge, depth=depth, verbose=verbose, n_jobs=n_jobs)
 
     # reorient all edges with CIRCLE Endpoint
     ori_edges = graph.get_graph_edges()
