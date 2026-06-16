@@ -65,6 +65,8 @@ def parse_args():
                         help="Number of parallel jobs for CPC, k-PC, and FCI (-1 = all cores)")
     parser.add_argument("--no-save-run", action="store_true",
                         help="Disable saving run results (metadata and edges) to /runs directory")
+    parser.add_argument("--use-bk", action="store_true",
+                        help="Inject temporal constraints during search using BackgroundKnowledge (CPC, k-PC, FCI)")
 
     # --- CPC-specific ---
     parser.add_argument("--max-hubs", type=int, default=30,
@@ -107,6 +109,15 @@ def main():
 
     print(f"Loaded: {df.shape[0]} units x {len(stage_cols)} process stages from '{args.data}'")
 
+    # Build BackgroundKnowledge if requested
+    bk = None
+    if args.use_bk:
+        if args.ges:
+            print("  Warning: GES is a score-based method and does not support BackgroundKnowledge. Ignoring --use-bk.")
+        else:
+            from runners.base import build_temporal_background_knowledge
+            bk = build_temporal_background_knowledge(stage_cols)
+
     # --- Dispatch to runner ---
     params = {}
     if args.cpc:
@@ -117,6 +128,7 @@ def main():
             "tester": args.tester,
             "max_hubs": args.max_hubs,
             "n_jobs": args.n_jobs,
+            "use_bk": args.use_bk,
         }
         result = run_cpc(
             df, stage_cols,
@@ -124,6 +136,7 @@ def main():
             tester=args.tester,
             max_hubs=args.max_hubs,
             n_jobs=args.n_jobs,
+            background_knowledge=bk,
         )
 
     elif args.kpc:
@@ -136,6 +149,7 @@ def main():
             "k": args.k,
             "fast_adj_search": fast_adj,
             "n_jobs": args.n_jobs,
+            "use_bk": args.use_bk,
         }
         result = run_kpc(
             df, stage_cols,
@@ -144,6 +158,7 @@ def main():
             k=args.k,
             fast_adj_search=fast_adj,
             n_jobs=args.n_jobs,
+            background_knowledge=bk,
         )
 
     elif args.fci:
@@ -154,6 +169,7 @@ def main():
             "tester": args.tester,
             "depth": args.depth,
             "n_jobs": args.n_jobs,
+            "use_bk": args.use_bk,
         }
         result = run_fci(
             df, stage_cols,
@@ -161,6 +177,7 @@ def main():
             tester=args.tester,
             depth=args.depth,
             n_jobs=args.n_jobs,
+            background_knowledge=bk,
         )
 
     elif args.ges:

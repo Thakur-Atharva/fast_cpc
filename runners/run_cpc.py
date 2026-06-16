@@ -19,6 +19,7 @@ def run_cpc(
     tester="chisq",
     max_hubs=30,
     n_jobs=-1,
+    background_knowledge=None,
     **kwargs,
 ) -> DiscoveryResult:
     """
@@ -55,6 +56,8 @@ def run_cpc(
         C.append({hub})
 
     # Run C-PC
+    if background_knowledge is not None:
+        print(f"  Background Knowledge: active (enforcing temporal tiers)")
     print(f"\n  Running C-PC structural learning...")
     start_time = time.time()
     learned_output, _ = CPC(
@@ -64,6 +67,7 @@ def run_cpc(
         alpha=alpha,
         data_names=stage_cols,
         n_jobs=n_jobs,
+        background_knowledge=background_knowledge,
     )
     elapsed = time.time() - start_time
     print(f"  C-PC completed in {elapsed:.2f}s")

@@ -16,6 +16,7 @@ def run_fci(
     tester="chisq",
     depth=1,
     n_jobs=-1,
+    background_knowledge=None,
     **kwargs,
 ) -> DiscoveryResult:
     """
@@ -47,6 +48,8 @@ def run_fci(
     data = df[stage_cols].to_numpy()
     n = data.shape[1]
 
+    if background_knowledge is not None:
+        print(f"  Background Knowledge: active (enforcing temporal tiers)")
     print(f"\n  Running FCI structural learning...")
     start_time = time.time()
     graph, color_edges = fci_k(
@@ -55,6 +58,7 @@ def run_fci(
         alpha=alpha,
         depth=depth,
         n_jobs=n_jobs,
+        background_knowledge=background_knowledge,
     )
     elapsed = time.time() - start_time
     print(f"  FCI completed in {elapsed:.2f}s")

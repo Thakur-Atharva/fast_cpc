@@ -17,6 +17,7 @@ def run_kpc(
     k=1,
     fast_adj_search=True,
     n_jobs=-1,
+    background_knowledge=None,
     **kwargs,
 ) -> DiscoveryResult:
     """
@@ -47,6 +48,8 @@ def run_kpc(
     data = df[stage_cols].to_numpy()
     n = data.shape[1]
 
+    if background_knowledge is not None:
+        print(f"  Background Knowledge: active (enforcing temporal tiers)")
     print(f"\n  Running k-PC structural learning...")
     start_time = time.time()
     D, new_adj = kPC(
@@ -58,6 +61,7 @@ def run_kpc(
         fastAdjSearch=fast_adj_search,
         node_names=stage_cols,
         n_jobs=n_jobs,
+        background_knowledge=background_knowledge,
     )
     elapsed = time.time() - start_time
     print(f"  k-PC completed in {elapsed:.2f}s")

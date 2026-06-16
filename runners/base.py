@@ -255,3 +255,27 @@ def save_run_results(
     df_edges.to_csv(edges_path, index=False)
     
     return run_path
+
+
+def build_temporal_background_knowledge(stage_cols: List[str]):
+    """
+    Build a BackgroundKnowledge object enforcing chronological ordering.
+    A node in a later stage (higher sequence number) cannot cause an earlier stage.
+    """
+    from causallearn.utils.PCUtils.BackgroundKnowledge import BackgroundKnowledge
+    from causallearn.graph.GraphNode import GraphNode
+
+    bk = BackgroundKnowledge()
+    timeline = build_timeline_map(stage_cols)
+
+    # To handle both string name queries and index-based 'X1', 'X2' queries in causallearn:
+    # We add nodes under both naming conventions.
+    for i, col in enumerate(stage_cols):
+        seq_num = timeline[col]
+        # 1. Add node with its actual column name
+        bk.add_node_to_tier(GraphNode(col), seq_num)
+        # 2. Add node with its index-based name (e.g. X1, X2...)
+        bk.add_node_to_tier(GraphNode(f"X{i + 1}"), seq_num)
+
+    return bk
+
