@@ -75,6 +75,13 @@ GES is a score-based algorithm that optimizes a likelihood score.
 python discover.py --ges --data fake_data.csv --score-func local_score_BDeu
 ```
 
+### 6. Prior Chronological Constraint Injection (BackgroundKnowledge)
+For constraint-based algorithms (C-PC, k-PC, FCI), you can inject prior chronological knowledge directly into the skeleton and orientation search using the `--use-bk` flag. This uses sequence numbers from node stage names to build a tier map where higher stage nodes are forbidden from causing lower stage nodes.
+
+```bash
+python discover.py --kpc --data fake_data.csv --k 1 --alpha 1e-10 --use-bk
+```
+
 ---
 
 ## CLI Argument Reference
@@ -92,6 +99,7 @@ python discover.py --ges --data fake_data.csv --score-func local_score_BDeu
 | `--tester` | Str | Independence test type (`chisq`, `fisherz`, `gsq`) | `chisq` |
 | `--no-temporal` | Flag | Disable chronological filtering | `False` |
 | `--no-transitive-reduction` | Flag | Disable transitive reduction post-processing | `False` |
+| `--use-bk` | Flag | Inject temporal constraints during search using BackgroundKnowledge (CPC, k-PC, FCI) | `False` |
 | `--output` | Path | Filename to save visualization PNG | `<algo>_manufacturing_dag.png` |
 | **Algorithm Specifics** | | | |
 | `--max-hubs` | Int | [CPC] Max number of conditioning hubs to use | `30` |
